@@ -143,6 +143,64 @@ python -m pytest -q
 交易配对和统计，以及通达信 / 文华公式与 Python 版逐K线一致
 （用 `tests/formula_interpreter.py` 这个小解释器直接运行 `formulas/` 里的公式文本）。
 
+## 数据接入（AKShare）
+
+`datasource/` 封装了 AKShare 的取数接口：统一字段、本地 CSV 缓存（增量更新）、数据检查、网络自检。
+
+### 安装
+
+建议用虚拟环境。Debian/Ubuntu 的系统 Python 直接 `pip install akshare` 可能因为依赖 jsonpath 编译失败，虚拟环境里没有这个问题：
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements-data.txt
+```
+
+### 使用
+
+```bash
+# 1. 先检查当前网络能连上哪些数据网站
+.venv/bin/python -m datasource check
+
+# 2. 拉取方案 A 的全部序列（ETF、全收益指数、美股/港股指数、黄金、国债收益率、回购利率、汇率）
+.venv/bin/python -m datasource universe
+.venv/bin/python -m datasource universe --only hs300,gold --start 2015-01-01   # 只拉部分
+
+# 3. 期货
+.venv/bin/python -m datasource main RB0 M0 CU0                                 # 主力连续（未复权，只适合粗看）
+.venv/bin/python -m datasource contracts --market SHFE --start 2024-01-01 --end 2024-03-31  # 逐合约日线
+.venv/bin/python -m datasource fees                                            # 手续费与保证金表
+```
+
+在 Python 里：
+
+```python
+from datasource import SeriesCache
+
+cache = SeriesCache()                                  # 缓存在 data/cache/
+df = cache.get("etf", "510300", start="2015-01-01")    # 后复权日线，以日期为索引
+```
+
+- 资产清单在 `config/universe_A.csv`，`source` 列可选：etf、csindex、index_cn、us_index、hk_index、gold_sge、
+  cn_bond_yield、fx、repo、futures_main。
+- 缓存放在 `data/cache/`，不进 git。再次运行只拉新数据；如果新拉的数据和缓存对不上（上游改了历史），会整条重拉。
+- 每条序列拉完会自动检查：断档、单日涨跌超过 20%、价格长时间不变、利率超出范围等，结果打印在后面。
+  期货主力连续的"单日涨跌过大"多半是换月跳空，这正是不能直接拿它算收益的原因。
+- `config/universe_A.csv` 里有几个代理代码（红利低波全收益、有色和能化的期货代理）是粗略选择，备注列里写明了，联网后请核对。
+
+### 在云端环境中使用
+
+云端环境的出网代理只支持 https，默认不放行这些数据网站。在会话标题栏打开环境菜单 → Edit → Network access，
+把下面这些域名加进 Allowed domains（`python -m datasource check` 也会列出连不上的域名）：
+
+```
+push2his.eastmoney.com, 80.push2.eastmoney.com, stock2.finance.sina.com.cn, finance.sina.com.cn,
+bond.finance.sina.com.cn, www.csindex.com.cn, www.sge.com.cn, www.safe.gov.cn, www.chinamoney.com.cn,
+www.shfe.com.cn, www.ine.cn, openctp.cn
+```
+
+大商所、郑商所、中金所、广期所的逐合约数据接口走 http，云端用不了，需要在本地运行 `contracts` 命令。
+
 ## 后续规划
 
 在单品种信号之上搭组合层（ETF 趋势过滤风险平价、期货杠杆风险平价 + 趋势 CTA）的原则和实现路径，

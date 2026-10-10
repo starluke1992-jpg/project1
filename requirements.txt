@@ -1,7 +1,6 @@
 numpy>=1.23
 pandas>=1.5
 matplotlib>=3.6
-# 可选：在线拉取期货主力连续行情
-# akshare
+# 在线取数（akshare）见 requirements-data.txt
 # 开发/测试
 pytest

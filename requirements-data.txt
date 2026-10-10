@@ -1,0 +1,3 @@
+# 数据接入（datasource 包）需要；只用 trend_signals 可以不装
+-r requirements.txt
+akshare>=1.19

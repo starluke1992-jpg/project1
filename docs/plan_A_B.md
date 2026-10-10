@@ -123,7 +123,7 @@
 
 | 阶段 | 内容 | 完成标准 |
 |---|---|---|
-| A0 数据 | 资产配置表 `config/universe_A.csv`；取数脚本（在本地运行）；把指数和 ETF 的历史拼起来、扣费率、换算汇率；检查数据（缺失、停牌、单日涨跌超过 20%） | 2010 年至今的全部序列通过检查，每个资产出一张走势图 |
+| A0 数据 | 取数代码已写好（`datasource/` 和 `config/universe_A.csv`），能联网后运行即可；剩下把指数和 ETF 的历史拼起来、扣费率、换算汇率 | 2010 年至今的全部序列通过检查，每个资产出一张走势图 |
 | A1 引擎和基准 | 风险估计、权重计算、月度调仓回测、成本、指标和报告。基准：等权、60/40、静态风险平价 | 单元测试覆盖：权重之和为 1、T+1 成交、成本计算、截断测试 |
 | A2 v1 策略 | 加上趋势过滤和波动率上限。只在开发期运行，每次试验都登记 | 开发期报告 |
 | A3 检验 | 参数测试、逐个去掉资产、成本翻倍、成交推迟。全部通过后跑一次留出期，冻结为 `planA-v1` | `docs/report_A_v1.md`，写明总共试了多少次 |
@@ -216,26 +216,33 @@
 
 ## 4. 数据来源
 
-| 数据 | 免费来源（AKShare 函数） | 备注 |
-|---|---|---|
-| ETF 日线（复权） | `fund_etf_hist_em`，参数 adjust="hfq" | |
-| A 股指数 | `index_zh_a_hist`、`stock_zh_index_daily` | 全收益指数可能要去中证指数官网取 |
-| 美股指数 | `index_us_stock_sina` | 需要另外配汇率数据 |
-| 期货逐合约日线 | `get_futures_daily` | 用来自己做换月和复权连续价格 |
-| 期货主力连续 | `futures_main_sina` | 没有复权，只适合粗略看看 |
-| 期货规则和费用 | `futures_rule`、`futures_fees_info`、`futures_comm_info` | |
-| 利率 | `repo_rate_hist`、`bond_china_yield` | 用于现金收益和融资成本 |
+已经接入，代码在 `datasource/`，用法见 README 的"数据接入"一节。
+
+| 数据 | `datasource` 函数 | AKShare 函数 | 备注 |
+|---|---|---|---|
+| ETF 日线（后复权） | `etf_daily` | `fund_etf_hist_em` | 后复权历史不随新分红改变，可以增量更新 |
+| 全收益指数 | `csindex_daily` | `stock_zh_index_hist_csindex` | 如 H00300、H00905 |
+| A 股价格指数 | `index_cn_daily` | `index_zh_a_hist` | |
+| 美股、港股指数 | `us_index_daily`、`hk_index_daily` | `index_us_stock_sina`、`stock_hk_index_daily_sina` | 价格指数，不含分红；要换算人民币 |
+| 黄金现货 | `gold_sge_daily` | `spot_hist_sge` | |
+| 国债收益率 | `cn_bond_yield_daily` | `bond_gb_zh_sina` | 合成 ETF 上市前的债券收益 |
+| 汇率中间价 | `fx_daily` | `currency_boc_safe` | 外管局数据，走 https |
+| 回购利率 | `repo_daily` | `repo_rate_hist` | 接口每次限一个月，已自动分段 |
+| 期货主力连续 | `futures_main_daily` | `futures_main_sina` | 未复权，只适合粗看 |
+| 期货逐合约日线 | `futures_contracts_daily` | `get_futures_daily` | 自建换月和复权连续用；按月缓存 |
+| 手续费和保证金 | `futures_fees` | `futures_fees_info` | 生成合约规格表用 |
 
 - AKShare 是靠抓取网页取数的，接口会变。取到的数据一律存成 CSV 缓存，关键序列再用第二个来源抽查。
 - 付费的替代：Tushare Pro、Wind 或 Choice、米筐、聚宽。
-- 当前这个云端环境访问不了上面这些数据网站，取数脚本要在本地运行，或者在环境设置里放行相应域名。
+- **云端环境：** 出网代理只支持 https，要在环境设置里放行相应域名（`python -m datasource check` 会列出来）。大商所、郑商所、中金所、广期所的逐合约数据接口是 http，只能在本地取。
 
 ## 5. 代码结构（在现有仓库上扩展）
 
 ```
 trend_signals/        # 已有：单品种信号（BOLL + KAMA + 波动率角度）
+datasource/           # 已有：AKShare 取数、本地缓存、数据检查、网络自检
 allocation/           # 方案 A 和 B1 共用
-  data.py             # 读 CSV、拼接指数和 ETF 历史、扣费率、换算汇率、检查数据
+  data.py             # 从缓存读数据、拼接指数和 ETF 历史、扣费率、换算汇率
   risk.py             # 波动率、Ledoit-Wolf 协方差
   weights.py          # 波动率倒数、两层风险预算、各项上限
   filters.py          # 趋势过滤（200 日均线 + 12 个月动量）
@@ -255,10 +262,8 @@ live/
   orders.py           # 生成调仓单
   reconcile.py        # 实盘和模型的偏差
 config/
-  universe_A.csv
+  universe_A.csv      # 已有：方案 A 的资产和数据源
   futures_specs.csv
-scripts/
-  fetch_data.py       # 在本地运行的取数脚本
 ```
 
 ## 6. 实盘运营与变更管理
