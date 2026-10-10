@@ -142,3 +142,90 @@ python -m pytest -q
 测试覆盖指标公式、与截图表头数值的核对、与截图信号的吻合度、无未来函数（截断数据后之前的信号不变）、
 交易配对和统计，以及通达信 / 文华公式与 Python 版逐K线一致
 （用 `tests/formula_interpreter.py` 这个小解释器直接运行 `formulas/` 里的公式文本）。
+
+## 数据接入（AKShare）
+
+`datasource/` 封装了 AKShare 的取数接口：统一字段、本地 CSV 缓存（增量更新）、数据检查、网络自检。
+
+### 安装
+
+建议用虚拟环境。Debian/Ubuntu 的系统 Python 直接 `pip install akshare` 可能因为依赖 jsonpath 编译失败，虚拟环境里没有这个问题：
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements-data.txt
+```
+
+### 使用
+
+```bash
+# 1. 先检查当前网络能连上哪些数据网站
+.venv/bin/python -m datasource check
+
+# 2. 拉取方案 A 的全部序列（ETF、全收益指数、美股/港股指数、黄金、国债收益率、回购利率、汇率）
+.venv/bin/python -m datasource universe
+.venv/bin/python -m datasource universe --only hs300,gold --start 2015-01-01   # 只拉部分
+
+# 3. 期货
+.venv/bin/python -m datasource main RB0 M0 CU0                                 # 主力连续（未复权，只适合粗看）
+.venv/bin/python -m datasource contracts --market SHFE --start 2024-01-01 --end 2024-03-31  # 逐合约日线
+.venv/bin/python -m datasource fees                                            # 手续费与保证金表
+```
+
+在 Python 里：
+
+```python
+from datasource import SeriesCache
+
+cache = SeriesCache()                                  # 缓存在 data/cache/
+df = cache.get("etf", "510300", start="2015-01-01")    # 后复权日线，以日期为索引
+```
+
+- 资产清单在 `config/universe_A.csv`，`source` 列可选：etf、csindex、index_cn、us_index、hk_index、gold_sge、
+  cn_bond_yield、fx、repo、futures_main。
+- 缓存放在 `data/cache/`，不进 git。再次运行只拉新数据；如果新拉的数据和缓存对不上（上游改了历史），会整条重拉。
+- 每条序列拉完会自动检查：断档、单日涨跌超过 20%、价格长时间不变、利率超出范围等，结果打印在后面。
+  期货主力连续的"单日涨跌过大"多半是换月跳空，这正是不能直接拿它算收益的原因。
+- `config/universe_A.csv` 里有几个代理代码（红利低波全收益、有色和能化的期货代理）是粗略选择，备注列里写明了，联网后请核对。
+
+### 在云端环境中使用
+
+云端环境的出网代理只支持 https，默认不放行这些数据网站。在会话标题栏打开环境菜单 → Edit → Network access，
+把下面这些域名加进 Allowed domains（`python -m datasource check` 也会列出连不上的域名）：
+
+```
+push2his.eastmoney.com, 80.push2.eastmoney.com, stock2.finance.sina.com.cn, finance.sina.com.cn,
+bond.finance.sina.com.cn, www.csindex.com.cn, www.sge.com.cn, www.safe.gov.cn, www.chinamoney.com.cn,
+www.shfe.com.cn, www.ine.cn, openctp.cn
+```
+
+大商所、郑商所、中金所、广期所的逐合约数据接口走 http，云端用不了，需要在本地运行 `contracts` 命令。
+
+## 回测（方案 A / 方案 B）
+
+```bash
+# 1. 取数（见上一节）
+.venv/bin/python -m datasource universe                     # 方案 A 需要的全部序列
+.venv/bin/python -m futures build --markets SHFE,INE        # 方案 B：逐合约数据 → 复权连续序列
+#    大商所、郑商所、中金所、广期所只能在本地取：--markets SHFE,INE,DCE,CZCE,CFFEX,GFEX
+
+# 2. 回测（默认只看开发期 2011–2018）
+.venv/bin/python -m research run A          # 等权、股六债四、静态风险平价、方案A v1、挑战者（负向趋势因子近似）
+.venv/bin/python -m research run B          # B1（带/不带趋势过滤）、B2（四个信号）、60/40 组合
+
+# 3. 留出期：规则冻结后只跑一次
+.venv/bin/python -m research run A --period holdout --confirm-holdout
+
+# 不联网时，用合成数据检查代码能否跑通（结果没有任何意义）
+.venv/bin/python -m research run A --synthetic
+```
+
+- 报告写到 `reports/<方案>_<区间>.md`，附净值和回撤图。
+- 每次用真实数据回测都会自动登记到 `research/trials.csv`（合成数据不登记），最终报告要写明一共试了多少次。
+- 时间顺序：信号日收盘计算，下一个交易日收盘成交；测试里有截断检查，保证不用未来数据。
+- 原则、规则和验收标准见 [docs/plan_A_B.md](docs/plan_A_B.md)。
+
+## 后续规划
+
+在单品种信号之上搭组合层（ETF 趋势过滤风险平价、期货杠杆风险平价 + 趋势 CTA）的原则和实现路径，
+见 [docs/plan_A_B.md](docs/plan_A_B.md)。
