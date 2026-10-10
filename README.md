@@ -9,6 +9,9 @@
 
 ![复现效果](docs/example_IF.png)
 
+> 另有一个多品种组合策略：**危机 Alpha CTA**（[`crisis_alpha/`](crisis_alpha)，策略说明书见 [docs/crisis_alpha.md](docs/crisis_alpha.md)），
+> 见文末“危机 Alpha CTA”一节。
+
 ## 指标（三类因子）
 
 | 截图名称 | 定义 | 因子 |
@@ -133,6 +136,27 @@ print(summary(tr, multiplier=300))                           # IF 每点 300 元
 - ATR_Angle 的数值大小取决于品种的点数（ATR 每天变化几个点），规则只用它的正负号，换品种不需要改。
 - 截图的 IF 示例只有 13 笔交易，样本太少，不能说明策略有效。上真实资金前，请用全品种、更长的历史数据回测。
 
+## 危机 Alpha CTA
+
+`crisis_alpha/` 是一个独立的多品种组合策略，目标是在股市持续下跌时提供正收益（危机 Alpha）。
+它在 37 个国内期货品种上做多空对称的多周期趋势跟踪（EWMAC + 通道突破），按波动率定仓位，
+资产类别之间按风险预算分配（股指、国债各 20%，贵金属 10%，四个商品板块各 12.5%），
+还包括组合风控、缓冲区调仓、换月处理和危机 Alpha 检验。
+原则、方法、落地流程（数据、上线步骤、每日 SOP、资金门槛、监控与治理）都写在
+[docs/crisis_alpha.md](docs/crisis_alpha.md)。
+
+```bash
+# 模拟数据（只检查程序，不代表真实表现）
+python -m crisis_alpha backtest --demo --plot demo.png
+
+# 真实数据：data/futures/ 下每个品种一个 CSV（IF.csv、RB.csv…），列 date, close[, contract | adj_close]
+python -m crisis_alpha backtest --data-dir data/futures --benchmark IF --start 2012-01-01 --plot backtest.png
+python -m crisis_alpha positions --data-dir data/futures --holdings holdings.csv --out orders.csv   # 每日目标仓位和开平指令
+python -m crisis_alpha capital --data-dir data/futures --capital 20000000                         # 资金是否够交易每个品种
+```
+
+仓库里没有附带真实的多品种行情，也没有用真实数据回测过。正式回测请按说明书第 4.2 节准备换月调整后的数据。
+
 ## 测试
 
 ```bash
@@ -142,3 +166,5 @@ python -m pytest -q
 测试覆盖指标公式、与截图表头数值的核对、与截图信号的吻合度、无未来函数（截断数据后之前的信号不变）、
 交易配对和统计，以及通达信 / 文华公式与 Python 版逐K线一致
 （用 `tests/formula_interpreter.py` 这个小解释器直接运行 `formulas/` 里的公式文本）。
+`tests/test_crisis_alpha.py` 覆盖危机 Alpha CTA 的信号、仓位、风控、换月、成本、无未来函数和危机检验，
+清单见 [docs/crisis_alpha.md](docs/crisis_alpha.md) 附录 A。
