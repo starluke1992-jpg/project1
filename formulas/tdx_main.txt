@@ -1,0 +1,96 @@
+{=====================================================================
+ 趋势跟踪信号（主图）—— 通达信公式
+ BOLL 趋势 + KAMA 动量 + 波动率角度 开仓；波动率收敛反穿 KAMA 或 吊灯移动止损 平仓。
+ 与仓库里 Python 版 trend_signals 的信号逐K线一致（tests/test_formulas.py 校验）。
+
+ 导入：公式管理器 → 技术指标公式 → 新建，画线方法选“主图叠加”，
+       把本文件全部内容粘贴到公式编辑框，测试公式通过后保存。
+ 参数：直接改下面“参数”几行的数值；也可以删掉这几行，在参数表里添加同名参数。
+=====================================================================}
+
+{---------- 参数 ----------}
+BOLLN:=20;    {BOLL 周期}
+BOLLK:=2;     {BOLL 标准差倍数}
+ERN:=10;      {KAMA 效率系数周期}
+FASTN:=2;     {KAMA 快速常数}
+SLOWN:=30;    {KAMA 慢速常数}
+MIDN:=5;      {MID = EMA(C,MIDN)}
+ATRN:=20;     {ATR 周期（真实波幅的简单平均）}
+MOMK:=0.2;    {动量阈值：|DIFF_MK| > MOMK*ATR 才算有动量}
+STOPK:=2.5;   {移动止损倍数，设为 0 关闭}
+STOPN:=10;    {移动止损回看根数}
+
+{---------- 指标 ----------}
+BOLL:MA(C,BOLLN),COLORWHITE;
+UPPER:BOLL+BOLLK*STD(C,BOLLN),COLOR009BFE;
+LOWER:BOLL-BOLLK*STD(C,BOLLN),COLORMAGENTA;
+
+{KAMA(10,2,30)。前 ERN 根用 0.99999 让 DMA 紧跟收盘价，与 Python 版的起点一致}
+DIR:=ABS(C-REF(C,ERN));
+VIR:=SUM(ABS(C-REF(C,1)),ERN);
+ER:=IF(VIR>0,DIR/VIR,0);
+FSC:=2/(FASTN+1);
+SSC:=2/(SLOWN+1);
+SC:=IF(BARSCOUNT(C)>ERN,(ER*(FSC-SSC)+SSC)*(ER*(FSC-SSC)+SSC),0.99999);
+KAMA:=DMA(C,SC);
+DIFF:=EMA(C,MIDN)-KAMA;
+
+{布林带宽度变化角度、ATR 变化角度}
+W:=(UPPER-LOWER)/BOLL;
+BBWA:=ATAN((W/REF(W,1)-1)*100)*180/3.1415926;
+TR1:=IF(BARSCOUNT(C)>1,MAX(MAX(H-L,ABS(H-REF(C,1))),ABS(L-REF(C,1))),H-L);
+ATR1:=MA(TR1,ATRN);
+ATRA:=ATAN(ATR1-REF(ATR1,1))*180/3.1415926;
+
+{---------- 开平仓条件（不考虑持仓） ----------}
+READY:=BARSCOUNT(C)>MAX(MAX(BOLLN,ATRN),MAX(ERN,STOPN));
+VUP:=BBWA>0 AND ATRA>0;
+VDN:=BBWA<0 AND ATRA<0;
+KDT:=C>BOLL AND DIFF>MOMK*ATR1 AND VUP;
+KKT:=C<BOLL AND DIFF<-MOMK*ATR1 AND VUP;
+PDT:=(VDN AND C<KAMA) OR (STOPK>0 AND C<HHV(H,STOPN)-STOPK*ATR1);
+PKT:=(VDN AND C>KAMA) OR (STOPK>0 AND C>LLV(L,STOPN)+STOPK*ATR1);
+
+{---------- 持仓状态 ----------
+ 通达信公式没有循环，也不能引用自己的上一根值，所以持仓用“状态转移合成”来算：
+ 每根K线把 空仓(0)/多头(1)/空头(-1) 分别映射到收盘后的状态（GF0/GL0/GS0），
+ 再按 1、2、4 … 128 根逐级合成，得到最近 256 根K线连续作用的结果。
+ 只在空仓时开仓、只平持有方向的仓位，与 Python 版完全相同；
+ 256 根之前的初始状态按空仓处理，状态机远在 256 根之内就会同步，不影响结果。}
+GF0:=IF(READY,IF(KDT,1,IF(KKT,-1,0)),0);
+GL0:=IF(READY,IF(PDT,0,1),1);
+GS0:=IF(READY,IF(PKT,0,-1),-1);
+GF1:=IF(BARSCOUNT(C)>1,IF(REF(GF0,1)=0,GF0,IF(REF(GF0,1)=1,GL0,GS0)),GF0);
+GL1:=IF(BARSCOUNT(C)>1,IF(REF(GL0,1)=0,GF0,IF(REF(GL0,1)=1,GL0,GS0)),GL0);
+GS1:=IF(BARSCOUNT(C)>1,IF(REF(GS0,1)=0,GF0,IF(REF(GS0,1)=1,GL0,GS0)),GS0);
+GF2:=IF(BARSCOUNT(C)>2,IF(REF(GF1,2)=0,GF1,IF(REF(GF1,2)=1,GL1,GS1)),GF1);
+GL2:=IF(BARSCOUNT(C)>2,IF(REF(GL1,2)=0,GF1,IF(REF(GL1,2)=1,GL1,GS1)),GL1);
+GS2:=IF(BARSCOUNT(C)>2,IF(REF(GS1,2)=0,GF1,IF(REF(GS1,2)=1,GL1,GS1)),GS1);
+GF3:=IF(BARSCOUNT(C)>4,IF(REF(GF2,4)=0,GF2,IF(REF(GF2,4)=1,GL2,GS2)),GF2);
+GL3:=IF(BARSCOUNT(C)>4,IF(REF(GL2,4)=0,GF2,IF(REF(GL2,4)=1,GL2,GS2)),GL2);
+GS3:=IF(BARSCOUNT(C)>4,IF(REF(GS2,4)=0,GF2,IF(REF(GS2,4)=1,GL2,GS2)),GS2);
+GF4:=IF(BARSCOUNT(C)>8,IF(REF(GF3,8)=0,GF3,IF(REF(GF3,8)=1,GL3,GS3)),GF3);
+GL4:=IF(BARSCOUNT(C)>8,IF(REF(GL3,8)=0,GF3,IF(REF(GL3,8)=1,GL3,GS3)),GL3);
+GS4:=IF(BARSCOUNT(C)>8,IF(REF(GS3,8)=0,GF3,IF(REF(GS3,8)=1,GL3,GS3)),GS3);
+GF5:=IF(BARSCOUNT(C)>16,IF(REF(GF4,16)=0,GF4,IF(REF(GF4,16)=1,GL4,GS4)),GF4);
+GL5:=IF(BARSCOUNT(C)>16,IF(REF(GL4,16)=0,GF4,IF(REF(GL4,16)=1,GL4,GS4)),GL4);
+GS5:=IF(BARSCOUNT(C)>16,IF(REF(GS4,16)=0,GF4,IF(REF(GS4,16)=1,GL4,GS4)),GS4);
+GF6:=IF(BARSCOUNT(C)>32,IF(REF(GF5,32)=0,GF5,IF(REF(GF5,32)=1,GL5,GS5)),GF5);
+GL6:=IF(BARSCOUNT(C)>32,IF(REF(GL5,32)=0,GF5,IF(REF(GL5,32)=1,GL5,GS5)),GL5);
+GS6:=IF(BARSCOUNT(C)>32,IF(REF(GS5,32)=0,GF5,IF(REF(GS5,32)=1,GL5,GS5)),GS5);
+GF7:=IF(BARSCOUNT(C)>64,IF(REF(GF6,64)=0,GF6,IF(REF(GF6,64)=1,GL6,GS6)),GF6);
+GL7:=IF(BARSCOUNT(C)>64,IF(REF(GL6,64)=0,GF6,IF(REF(GL6,64)=1,GL6,GS6)),GL6);
+GS7:=IF(BARSCOUNT(C)>64,IF(REF(GS6,64)=0,GF6,IF(REF(GS6,64)=1,GL6,GS6)),GS6);
+GF8:=IF(BARSCOUNT(C)>128,IF(REF(GF7,128)=0,GF7,IF(REF(GF7,128)=1,GL7,GS7)),GF7);
+HOLD:=GF8;
+持仓:HOLD,NODRAW;
+
+{---------- 信号 ----------}
+KD:=HOLD=1 AND REF(HOLD,1)<>1;
+KK:=HOLD=-1 AND REF(HOLD,1)<>-1;
+PC:=HOLD=0 AND REF(HOLD,1)<>0;
+DRAWICON(KD,L*0.99,1);
+DRAWTEXT(KD,L*0.975,'开多'),COLORLIBLUE;
+DRAWICON(KK,H*1.01,2);
+DRAWTEXT(KK,H*1.03,'开空'),COLORLIBLUE;
+DRAWTEXT(PC,L*0.99,'平仓'),COLORLIBLUE;

@@ -1,0 +1,61 @@
+// =====================================================================
+// 趋势跟踪信号 —— 文华财经交易模型（wh6 / wh8 / 赢顺云，麦语言）
+// BOLL 趋势 + KAMA 动量 + 波动率角度 开仓；波动率收敛反穿 KAMA 或 吊灯移动止损 平仓。
+// 与仓库里 Python 版 trend_signals 的信号逐K线一致（tests/test_formulas.py 校验）。
+//
+// 导入：新建“模型”（交易模型），把本文件全部内容粘贴进去，编译通过后加载到主图。
+// 设置：信号执行方式请选“K线走完确认信号下单”，否则盘中收盘价变化会让信号闪烁。
+// 参数：直接改下面“参数”几行的数值；也可以删掉这几行，改到参数表里（同名）。
+// =====================================================================
+
+// ---------- 参数 ----------
+BOLLN:=20;    // BOLL 周期
+BOLLK:=2;     // BOLL 标准差倍数
+ERN:=10;      // KAMA 效率系数周期
+FASTN:=2;     // KAMA 快速常数
+SLOWN:=30;    // KAMA 慢速常数
+MIDN:=5;      // MID = EMA(C,MIDN)
+ATRN:=20;     // ATR 周期（真实波幅的简单平均）
+MOMK:=0.2;    // 动量阈值：|DIFF_MK| > MOMK*ATR 才算有动量
+STOPK:=2.5;   // 移动止损倍数，设为 0 关闭
+STOPN:=10;    // 移动止损回看根数
+
+// ---------- 指标 ----------
+BOLL:MA(C,BOLLN),COLORWHITE;
+UPPER:BOLL+BOLLK*STD(C,BOLLN),COLORYELLOW;
+LOWER:BOLL-BOLLK*STD(C,BOLLN),COLORMAGENTA;
+
+// KAMA(10,2,30)。前 ERN 根用 0.99999 让 DMA 紧跟收盘价，与 Python 版的起点一致
+DIR:=ABS(C-REF(C,ERN));
+VIR:=SUM(ABS(C-REF(C,1)),ERN);
+ER:=IFELSE(VIR>0,DIR/VIR,0);
+FSC:=2/(FASTN+1);
+SSC:=2/(SLOWN+1);
+SC:=IFELSE(BARPOS>ERN,(ER*(FSC-SSC)+SSC)*(ER*(FSC-SSC)+SSC),0.99999);
+KAMA:=DMA(C,SC);
+DIFF:=EMA(C,MIDN)-KAMA;
+
+// 布林带宽度变化角度、ATR 变化角度
+W:=(UPPER-LOWER)/BOLL;
+BBWA:=ATAN((W/REF(W,1)-1)*100)*180/3.1415926;
+TR1:=IFELSE(BARPOS>1,MAX(MAX(H-L,ABS(H-REF(C,1))),ABS(L-REF(C,1))),H-L);
+ATR1:=MA(TR1,ATRN);
+ATRA:=ATAN(ATR1-REF(ATR1,1))*180/3.1415926;
+
+// ---------- 开平仓条件 ----------
+READY:=BARPOS>MAX(MAX(BOLLN,ATRN),MAX(ERN,STOPN));
+VUP:=BBWA>0&&ATRA>0;
+VDN:=BBWA<0&&ATRA<0;
+KDT:=READY&&C>BOLL&&DIFF>MOMK*ATR1&&VUP;
+KKT:=READY&&C<BOLL&&DIFF<-MOMK*ATR1&&VUP;
+PDT:=READY&&((VDN&&C<KAMA)||(STOPK>0&&C<HHV(H,STOPN)-STOPK*ATR1));
+PKT:=READY&&((VDN&&C>KAMA)||(STOPK>0&&C>LLV(L,STOPN)+STOPK*ATR1));
+
+// ---------- 信号 ----------
+// 开仓写在平仓前面：空仓时同一根K线既满足开仓又满足平仓，只开仓（与 Python 版一致）。
+// AUTOFILTER 保证一开一平：持多时只认 SP，持空时只认 BP，空仓时只认 BK/SK。
+KDT,BK;
+KKT,SK;
+PDT,SP;
+PKT,BP;
+AUTOFILTER;

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from trend_signals import generate_signals, load_csv, summary, trades
+from trend_signals import Params, generate_signals, load_csv, summary, trades
 from trend_signals.strategy import CLOSE_LONG, CLOSE_SHORT, OPEN_LONG, OPEN_SHORT
 
 SAMPLE = Path(__file__).resolve().parents[1] / "data" / "IF_main_digitized.csv"
@@ -83,7 +83,23 @@ def test_signal_bars_satisfy_their_conditions():
     ol, os_ = s[s["signal"] == OPEN_LONG], s[s["signal"] == OPEN_SHORT]
     assert ((ol["close"] > ol["boll"]) & (ol["diff_mk"] > th[ol.index]) & vol_up[ol.index]).all()
     assert ((os_["close"] < os_["boll"]) & (os_["diff_mk"] < -th[os_.index]) & vol_up[os_.index]).all()
+    # 平仓：核心条件，或最近 10 根最高价/最低价 ∓ 2.5*ATR 的移动止损
+    hh = s["high"].rolling(10).max() - 2.5 * s["atr"]
+    ll = s["low"].rolling(10).min() + 2.5 * s["atr"]
     cl, cs = s[s["signal"] == CLOSE_LONG], s[s["signal"] == CLOSE_SHORT]
+    assert (((cl["close"] < cl["kama"]) & vol_down[cl.index]) | (cl["close"] < hh[cl.index])).all()
+    assert (((cs["close"] > cs["kama"]) & vol_down[cs.index]) | (cs["close"] > ll[cs.index])).all()
+    assert len(cl) + len(cs) > 5
+
+
+def test_trailing_stop_can_be_disabled(sample):
+    off = generate_signals(sample, Params(trail_atr_mult=0))
+    on = generate_signals(sample)
+    assert (on["signal"] != off["signal"]).any()
+    # 关掉移动止损后，每个平仓都只能由核心条件触发
+    vol_down = (off["bb_width_angle"] < 0) & (off["atr_angle"] < 0)
+    cl = off[off["signal"] == CLOSE_LONG]
+    cs = off[off["signal"] == CLOSE_SHORT]
     assert ((cl["close"] < cl["kama"]) & vol_down[cl.index]).all()
     assert ((cs["close"] > cs["kama"]) & vol_down[cs.index]).all()
 

@@ -24,7 +24,12 @@ def normalize(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_csv(path: str) -> pd.DataFrame:
-    return normalize(pd.read_csv(path))
+    """UTF-8 或 GBK 编码都可以（行情软件导出、Excel 另存的 CSV 常是 GBK）。"""
+    try:
+        raw = pd.read_csv(path, encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        raw = pd.read_csv(path, encoding="gbk")
+    return normalize(raw)
 
 
 def fetch_akshare(symbol: str = "IF0", start: str = "19900101", end: str = "22220101") -> pd.DataFrame:

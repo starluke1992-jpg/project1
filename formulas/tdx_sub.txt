@@ -1,0 +1,50 @@
+{=====================================================================
+ 趋势跟踪信号（副图）—— 通达信公式，共 4 个，分别新建为独立的技术指标。
+ 画线方法：KAMA_MID 选“副图”或“主图叠加”（主图叠加时删掉 DRAWKLINE 那行），其余 3 个选“副图”。
+ 每个公式从“===== 公式 N” 下面一行复制到下一个分隔线之前。
+=====================================================================}
+
+
+{===== 公式 1：KAMA_MID（KAMA 与 MID = EMA(C,5)） =====}
+ERN:=10; FASTN:=2; SLOWN:=30; MIDN:=5;
+DRAWKLINE(H,O,L,C);
+DIR:=ABS(C-REF(C,ERN));
+VIR:=SUM(ABS(C-REF(C,1)),ERN);
+ER:=IF(VIR>0,DIR/VIR,0);
+FSC:=2/(FASTN+1);
+SSC:=2/(SLOWN+1);
+SC:=IF(BARSCOUNT(C)>ERN,(ER*(FSC-SSC)+SSC)*(ER*(FSC-SSC)+SSC),0.99999);
+KAMA:DMA(C,SC),COLOR009BFE;
+MID:EMA(C,MIDN),COLORYELLOW;
+
+
+{===== 公式 2：BB_Width_Angle（布林带宽度变化角度，>0 张口，<0 收口） =====}
+BOLLN:=20; BOLLK:=2;
+MB:=MA(C,BOLLN);
+W:=2*BOLLK*STD(C,BOLLN)/MB;
+BBWA:ATAN((W/REF(W,1)-1)*100)*180/3.1415926,COLORYELLOW;
+STICKLINE(BBWA>0,0,BBWA,0,0),COLORRED;
+STICKLINE(BBWA<0,0,BBWA,0,0),COLORGREEN;
+ZERO:0,COLORWHITE;
+
+
+{===== 公式 3：ATR_Angle（ATR 变化角度，>0 波动放大，<0 波动收敛） =====}
+ATRN:=20;
+TR1:=IF(BARSCOUNT(C)>1,MAX(MAX(H-L,ABS(H-REF(C,1))),ABS(L-REF(C,1))),H-L);
+ATR1:=MA(TR1,ATRN);
+ATRA:ATAN(ATR1-REF(ATR1,1))*180/3.1415926,COLORYELLOW;
+STICKLINE(ATRA>0,0,ATRA,0,0),COLORRED;
+STICKLINE(ATRA<0,0,ATRA,0,0),COLORGREEN;
+ZERO:0,COLORWHITE;
+
+
+{===== 公式 4：DIFF_MK（MID - KAMA，动量） =====}
+ERN:=10; FASTN:=2; SLOWN:=30; MIDN:=5;
+DIR:=ABS(C-REF(C,ERN));
+VIR:=SUM(ABS(C-REF(C,1)),ERN);
+ER:=IF(VIR>0,DIR/VIR,0);
+FSC:=2/(FASTN+1);
+SSC:=2/(SLOWN+1);
+SC:=IF(BARSCOUNT(C)>ERN,(ER*(FSC-SSC)+SSC)*(ER*(FSC-SSC)+SSC),0.99999);
+DIFFMK:EMA(C,MIDN)-DMA(C,SC),COLORYELLOW;
+ZERO:0,COLOR009BFE;

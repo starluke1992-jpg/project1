@@ -5,7 +5,12 @@
   动量    DIFF_MK > +阈值（多） / < -阈值（空），阈值 = momentum_atr_mult * ATR
   波动率  BB_Width_Angle > 0 且 ATR_Angle > 0（布林带张口、ATR 放大，即行情正在展开）
 
-平仓：波动率收敛（BB_Width_Angle < 0 且 ATR_Angle < 0）并且收盘价反向穿过 KAMA。
+平仓（任一条件触发）：
+  1. 波动率收敛（BB_Width_Angle < 0 且 ATR_Angle < 0）并且收盘价反向穿过 KAMA；
+  2. 移动止损（吊灯止损）：多单收盘 < 最近 trail_lookback 根K线最高价 - trail_atr_mult * ATR，
+     空单收盘 > 最近 trail_lookback 根K线最低价 + trail_atr_mult * ATR。trail_atr_mult 设为 0 可关闭。
+     用固定回看窗口而不是“开仓以来”，是为了让平仓条件不依赖持仓状态，
+     这样通达信公式（没有循环、不能记住持仓）也能算出完全相同的信号；两种写法在截图上的吻合度一样。
 
 信号在K线收盘时确定，按收盘价成交（与截图标注一致）；实盘中应在下一根K线执行。
 """
@@ -31,6 +36,9 @@ class Params:
     atr_n: int = 20
     # DIFF_MK 在零轴附近时不算有动量；截图里 |DIFF_MK| 很小时出现了四因子同向却未开仓的情况
     momentum_atr_mult: float = 0.2
+    # 移动止损（原文：“以波动幅度为核心的跟踪最高价的止盈止损”）；trail_atr_mult=0 表示不用
+    trail_atr_mult: float = 2.5
+    trail_lookback: int = 10
 
 
 def generate_signals(df: pd.DataFrame, params: Params = Params()) -> pd.DataFrame:
@@ -44,20 +52,27 @@ def generate_signals(df: pd.DataFrame, params: Params = Params()) -> pd.DataFram
 
     long_entry = ((close > ind["boll"]) & (ind["diff_mk"] > threshold) & vol_expanding).to_numpy()
     short_entry = ((close < ind["boll"]) & (ind["diff_mk"] < -threshold) & vol_expanding).to_numpy()
-    long_exit = (vol_contracting & (close < ind["kama"])).to_numpy()
-    short_exit = (vol_contracting & (close > ind["kama"])).to_numpy()
+    long_exit = vol_contracting & (close < ind["kama"])
+    short_exit = vol_contracting & (close > ind["kama"])
+    if params.trail_atr_mult > 0:
+        stop_dist = params.trail_atr_mult * ind["atr"]
+        long_exit |= close < df["high"].rolling(params.trail_lookback).max() - stop_dist
+        short_exit |= close > df["low"].rolling(params.trail_lookback).min() + stop_dist
+    long_exit, short_exit = long_exit.to_numpy(), short_exit.to_numpy()
 
     signal = np.full(len(df), "", dtype=object)
     position = np.zeros(len(df), dtype=int)
     pos = 0
     for i in range(len(df)):
-        if pos == 1 and long_exit[i]:
-            pos, signal[i] = 0, CLOSE_LONG
-        elif pos == -1 and short_exit[i]:
-            pos, signal[i] = 0, CLOSE_SHORT
-        elif pos == 0 and long_entry[i]:
+        if pos == 1:
+            if long_exit[i]:
+                pos, signal[i] = 0, CLOSE_LONG
+        elif pos == -1:
+            if short_exit[i]:
+                pos, signal[i] = 0, CLOSE_SHORT
+        elif long_entry[i]:
             pos, signal[i] = 1, OPEN_LONG
-        elif pos == 0 and short_entry[i]:
+        elif short_entry[i]:
             pos, signal[i] = -1, OPEN_SHORT
         position[i] = pos
 
