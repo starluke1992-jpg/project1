@@ -201,6 +201,30 @@ www.shfe.com.cn, www.ine.cn, openctp.cn
 
 大商所、郑商所、中金所、广期所的逐合约数据接口走 http，云端用不了，需要在本地运行 `contracts` 命令。
 
+## 回测（方案 A / 方案 B）
+
+```bash
+# 1. 取数（见上一节）
+.venv/bin/python -m datasource universe                     # 方案 A 需要的全部序列
+.venv/bin/python -m futures build --markets SHFE,INE        # 方案 B：逐合约数据 → 复权连续序列
+#    大商所、郑商所、中金所、广期所只能在本地取：--markets SHFE,INE,DCE,CZCE,CFFEX,GFEX
+
+# 2. 回测（默认只看开发期 2011–2018）
+.venv/bin/python -m research run A          # 等权、股六债四、静态风险平价、方案A v1、挑战者（负向趋势因子近似）
+.venv/bin/python -m research run B          # B1（带/不带趋势过滤）、B2（四个信号）、60/40 组合
+
+# 3. 留出期：规则冻结后只跑一次
+.venv/bin/python -m research run A --period holdout --confirm-holdout
+
+# 不联网时，用合成数据检查代码能否跑通（结果没有任何意义）
+.venv/bin/python -m research run A --synthetic
+```
+
+- 报告写到 `reports/<方案>_<区间>.md`，附净值和回撤图。
+- 每次用真实数据回测都会自动登记到 `research/trials.csv`（合成数据不登记），最终报告要写明一共试了多少次。
+- 时间顺序：信号日收盘计算，下一个交易日收盘成交；测试里有截断检查，保证不用未来数据。
+- 原则、规则和验收标准见 [docs/plan_A_B.md](docs/plan_A_B.md)。
+
 ## 后续规划
 
 在单品种信号之上搭组合层（ETF 趋势过滤风险平价、期货杠杆风险平价 + 趋势 CTA）的原则和实现路径，
