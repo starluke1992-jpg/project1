@@ -142,3 +142,8 @@ python -m pytest -q
 测试覆盖指标公式、与截图表头数值的核对、与截图信号的吻合度、无未来函数（截断数据后之前的信号不变）、
 交易配对和统计，以及通达信 / 文华公式与 Python 版逐K线一致
 （用 `tests/formula_interpreter.py` 这个小解释器直接运行 `formulas/` 里的公式文本）。
+
+## 后续规划
+
+在单品种信号之上搭组合层（ETF 趋势过滤风险平价、期货杠杆风险平价 + 趋势 CTA）的原则和实现路径，
+见 [docs/plan_A_B.md](docs/plan_A_B.md)。
